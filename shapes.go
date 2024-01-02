@@ -268,12 +268,21 @@ func (p *Proc) poly(ps ...f32.Point) {
 	}
 
 	path := make(segments, len(ps))
-	for i, p := range ps {
+
+	doClose := len(ps) > 1 && ps[0] == ps[len(ps)-1]
+	doPs := ps
+	if doClose {
+		doPs = doPs[:len(doPs)-1]
+	}
+	for i, p := range doPs {
 		op := opLineTo
 		if i == 0 {
 			op = opMoveTo
 		}
 		path[i] = op(p)
+	}
+	if doClose {
+		path[len(path)-1] = segment{op: segOpClose}
 	}
 
 	if p.doFill() {
