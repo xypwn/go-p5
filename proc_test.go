@@ -16,7 +16,6 @@ import (
 
 	"gioui.org/app"
 	"gioui.org/io/event"
-	"gioui.org/io/system"
 	"gioui.org/op"
 	"github.com/go-p5/p5/internal/cmpimg"
 )
@@ -30,16 +29,16 @@ type testWindow struct {
 	opts []app.Option
 }
 
-func (w testWindow) Events() <-chan event.Event {
-	return w.evts
+func (w testWindow) Event() event.Event {
+	return <-w.evts
 }
 
 func (w testWindow) Close() {
-	w.evts <- system.DestroyEvent{}
+	w.evts <- app.DestroyEvent{}
 }
 
 func (w testWindow) Invalidate() {
-	w.evts <- system.FrameEvent{
+	w.evts <- app.FrameEvent{
 		Frame: func(ops *op.Ops) {},
 	}
 }
@@ -111,7 +110,7 @@ func (p *testProc) Run(t *testing.T, evts ...event.Event) {
 	copy(cmds, evts)
 	cmds = append(cmds,
 		p.frame(t, nil),
-		system.DestroyEvent{},
+		app.DestroyEvent{},
 	)
 
 loop:
@@ -137,7 +136,7 @@ func (p *testProc) frame(t *testing.T, frame func(ops *op.Ops)) event.Event {
 		}
 	}
 
-	return system.FrameEvent{
+	return app.FrameEvent{
 		Size:  image.Point{X: p.w, Y: p.h},
 		Frame: frame,
 	}
@@ -267,7 +266,7 @@ func TestShutdown(t *testing.T) {
 	)
 	proc.Run(t,
 		proc.frame(t, nil), proc.frame(t, nil),
-		system.DestroyEvent{},
+		app.DestroyEvent{},
 		proc.frame(t, func(ops *op.Ops) {
 			t.Fatalf("should not have executed this frame")
 		}),

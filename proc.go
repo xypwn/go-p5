@@ -28,7 +28,6 @@ import (
 	"gioui.org/io/event"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
-	"gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/paint"
@@ -64,7 +63,7 @@ var (
 // gioWindow represents an operating system window operated by Gio.
 type gioWindow interface {
 	// Events returns the channel where events are delivered.
-	Events() <-chan event.Event
+	Event() event.Event
 
 	// Invalidate the window such that a FrameEvent will be generated immediately.
 	// If the window is inactive, the event is sent when the window becomes active.
@@ -123,14 +122,18 @@ func newProc(w, h int) *Proc {
 		rand: rand.New(rand.NewSource(defaultSeed)),
 
 		newWindow: func(opts ...app.Option) gioWindow {
-			return app.NewWindow(opts...)
+			a := new(app.Window)
+			a.Option(opts...)
+			return a
 		},
 	}
 	proc.ctl.FrameRate = defaultFrameRate
 	proc.ctl.loop = true
 	proc.stk = newStackOps(proc.ctx.Ops)
 
-	proc.cfg.th = material.NewTheme(gofont.Collection())
+	th := material.NewTheme()
+	th.Shaper = text.NewShaper(text.WithCollection(gofont.Collection()))
+	proc.cfg.th = th
 	proc.initCanvas(w, h, defaultTextFont)
 	proc.stk.cur().stroke.style.width = 2
 
@@ -232,9 +235,8 @@ func (p *Proc) run() error {
 	var cnt int
 
 	for {
-		e := <-w.Events()
-		switch e := e.(type) {
-		case system.DestroyEvent:
+		switch e := w.Event().(type) {
+		case app.DestroyEvent:
 			return e.Err
 
 		case key.Event:
@@ -251,7 +253,7 @@ func (p *Proc) run() error {
 			}
 
 		case pointer.Event:
-			switch e.Type {
+			switch e.Kind {
 			case pointer.Press:
 				Event.Mouse.Pressed = true
 			case pointer.Release:
@@ -263,7 +265,7 @@ func (p *Proc) run() error {
 			}
 			Event.Mouse.Buttons = Buttons(e.Buttons)
 
-		case system.FrameEvent:
+		case app.FrameEvent:
 			// The first frame should always been drawn, even if looping is disabled
 			if p.IsLooping() || p.FrameCount() == 0 {
 				p.draw(e)
@@ -284,9 +286,9 @@ func (p *Proc) setupUserFuncs() {
 	}
 }
 
-func (p *Proc) draw(e system.FrameEvent) {
+func (p *Proc) draw(e app.FrameEvent) {
 	p.incFrameCount()
-	p.ctx = layout.NewContext(p.ctx.Ops, e)
+	p.ctx = app.NewContext(p.ctx.Ops, e)
 
 	ops := p.ctx.Ops
 	clr := rgba(p.stk.cur().bkg)
@@ -351,7 +353,9 @@ func (p *Proc) Fill(c color.Color) {
 
 // LoadFonts sets the fonts collection to use for text.
 func (p *Proc) LoadFonts(fnt []font.FontFace) {
-	p.cfg.th = material.NewTheme(fnt)
+	th := material.NewTheme()
+	th.Shaper = text.NewShaper(text.WithCollection(gofont.Collection()))
+	p.cfg.th = th
 }
 
 // TextSize sets the text size.
