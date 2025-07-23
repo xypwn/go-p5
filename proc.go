@@ -31,6 +31,7 @@ import (
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/unit"
@@ -313,9 +314,9 @@ func (p *Proc) handleInputEvents(source input.Source) {
 				Event.Mouse.Pressed = false
 			case pointer.Move, pointer.Drag:
 				Event.Mouse.PrevPosition = Event.Mouse.Position
-				Event.Mouse.Position.X = p.cfg.s2uX(float64(ev.Position.X))
-				Event.Mouse.Position.Y = p.cfg.s2uY(float64(ev.Position.Y))
 			}
+			Event.Mouse.Position.X = p.cfg.s2uX(float64(ev.Position.X))
+			Event.Mouse.Position.Y = p.cfg.s2uY(float64(ev.Position.Y))
 			Event.Mouse.Buttons = Buttons(ev.Buttons)
 		}
 	}
@@ -327,11 +328,18 @@ func (p *Proc) draw(e app.FrameEvent) {
 	p.ctx = app.NewContext(p.ctx.Ops, e)
 
 	ops := p.ctx.Ops
+
+	// Required so that mouse event positions are reported
+	// properly on platforms that use custom frame decoration.
+	globalClip := clip.Rect{Max: e.Size}.Push(ops)
+
 	clr := rgba(p.stk.cur().bkg)
 	paint.Fill(ops, clr)
 
 	p.handleInputEvents(e.Source)
 	p.Draw()
+	globalClip.Pop()
+
 	e.Frame(ops)
 }
 
