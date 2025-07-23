@@ -26,6 +26,7 @@ import (
 	"gioui.org/font/gofont"
 	"gioui.org/gpu/headless"
 	"gioui.org/io/event"
+	"gioui.org/io/input"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
@@ -84,10 +85,11 @@ type Proc struct {
 	ctl struct {
 		FrameRate time.Duration
 
-		mu      sync.RWMutex
-		run     bool
-		loop    bool
-		nframes uint64
+		mu           sync.RWMutex
+		run          bool
+		loop         bool
+		nframes      uint64
+		nscreenshots int
 	}
 	cfg struct {
 		w int
@@ -232,38 +234,18 @@ func (p *Proc) run() error {
 		}
 	}()
 
-	var cnt int
-
 	for {
+		quit := false
+		p.ctl.mu.RLock()
+		quit = !p.ctl.run
+		p.ctl.mu.RUnlock()
+		if quit {
+			return nil
+		}
+
 		switch e := w.Event().(type) {
 		case app.DestroyEvent:
 			return e.Err
-
-		case key.Event:
-			switch e.Name {
-			case key.NameEscape:
-				return nil
-			case "F11":
-				fname := fmt.Sprintf("out-%03d.png", cnt)
-				err = p.Screenshot(fname)
-				if err != nil {
-					log.Printf("could not take screenshot: %+v", err)
-				}
-				cnt++
-			}
-
-		case pointer.Event:
-			switch e.Kind {
-			case pointer.Press:
-				Event.Mouse.Pressed = true
-			case pointer.Release:
-				Event.Mouse.Pressed = false
-			case pointer.Move:
-				Event.Mouse.PrevPosition = Event.Mouse.Position
-				Event.Mouse.Position.X = p.cfg.s2uX(float64(e.Position.X))
-				Event.Mouse.Position.Y = p.cfg.s2uY(float64(e.Position.Y))
-			}
-			Event.Mouse.Buttons = Buttons(e.Buttons)
 
 		case app.FrameEvent:
 			// The first frame should always been drawn, even if looping is disabled
@@ -286,6 +268,60 @@ func (p *Proc) setupUserFuncs() {
 	}
 }
 
+// This is needed for GioUI but never
+// changed, so protections are not needed.
+var inputEventTag = new(struct{})
+
+func (p *Proc) handleInputEvents(source input.Source) {
+	event.Op(p.ctx.Ops, inputEventTag)
+
+	for {
+		se, ok := source.Event(pointer.Filter{
+			Target: inputEventTag,
+			Kinds:  pointer.Press | pointer.Release | pointer.Move | pointer.Drag,
+		}, key.Filter{})
+		if !ok {
+			break
+		}
+
+		switch ev := se.(type) {
+		case key.Event:
+			switch ev.Name {
+			case key.NameEscape:
+				p.ctl.mu.Lock()
+				p.ctl.run = false
+				p.ctl.mu.Unlock()
+			case "F11":
+				if ev.State == key.Press {
+					p.ctl.mu.Lock()
+					fname := fmt.Sprintf("out-%03d.png", p.ctl.nscreenshots)
+					p.ctl.mu.Unlock()
+					err := p.Screenshot(fname)
+					if err != nil {
+						log.Printf("could not take screenshot: %+v", err)
+					}
+					p.ctl.mu.Lock()
+					p.ctl.nscreenshots++
+					p.ctl.mu.Unlock()
+				}
+			}
+		case pointer.Event:
+			switch ev.Kind {
+			case pointer.Press:
+				Event.Mouse.Pressed = true
+			case pointer.Release:
+				Event.Mouse.Pressed = false
+			case pointer.Move, pointer.Drag:
+				Event.Mouse.PrevPosition = Event.Mouse.Position
+				Event.Mouse.Position.X = p.cfg.s2uX(float64(ev.Position.X))
+				Event.Mouse.Position.Y = p.cfg.s2uY(float64(ev.Position.Y))
+			}
+			Event.Mouse.Buttons = Buttons(ev.Buttons)
+		}
+	}
+
+}
+
 func (p *Proc) draw(e app.FrameEvent) {
 	p.incFrameCount()
 	p.ctx = app.NewContext(p.ctx.Ops, e)
@@ -294,6 +330,7 @@ func (p *Proc) draw(e app.FrameEvent) {
 	clr := rgba(p.stk.cur().bkg)
 	paint.Fill(ops, clr)
 
+	p.handleInputEvents(e.Source)
 	p.Draw()
 	e.Frame(ops)
 }
